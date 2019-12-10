@@ -2024,7 +2024,7 @@ function plagiarism_urkund_resubmit_on_close() {
 
     // Get all Assignments that use Urkund and have expired duedate that have not been run.
     $now = time();
-    $sql = "SELECT a.*, cm.id as cmid from {assign} a
+    $sql = "SELECT a.*, cm.id as cmid from {assign} a, uc2.value as timeresubmitted
               JOIN {course_modules} cm ON cm.instance = a.id
               JOIN {modules} m ON m.id = cm.module
               JOIN {plagiarism_urkund_config} uc ON uc.cm = cm.id AND uc.name = 'use_urkund' AND uc.value = '1'
@@ -2037,11 +2037,14 @@ function plagiarism_urkund_resubmit_on_close() {
 
     // For each Assignment with close date.
     foreach ($assignments as $assignment) {
-        plagiarism_urkund_resubmit_cm($assignment->cmid);
+        // Sanity check timeresubmitted.
+        if (empty($assignment->timeresubmitted) || (int)$assignment->timeresubmitted < $assignment->duedate) {
+            plagiarism_urkund_resubmit_cm($assignment->cmid);
+        }
     }
 
     // Get all Assignments that use Urkund and have expired closedate that have not been run.
-    $sql = "SELECT a.*, cm.id as cmid from {assign} a
+    $sql = "SELECT a.*, cm.id as cmid from {assign} a, uc2.value as timeresubmitted
               JOIN {course_modules} cm ON cm.instance = a.id
               JOIN {modules} m ON m.id = cm.module
               JOIN {plagiarism_urkund_config} uc ON uc.cm = cm.id AND uc.name = 'use_urkund' AND uc.value = '1'
@@ -2054,7 +2057,9 @@ function plagiarism_urkund_resubmit_on_close() {
 
     // For each Assignment with cut off date.
     foreach ($assignments as $assignment) {
-        plagiarism_urkund_resubmit_cm($assignment->cmid);
+        if (empty($assignment->timeresubmitted) || (int)$assignment->timeresubmitted < $assignment->cutoffdate) {
+            plagiarism_urkund_resubmit_cm($assignment->cmid);
+        }
     }
 }
 
@@ -2068,9 +2073,6 @@ function plagiarism_urkund_resubmit_cm($cmid) {
 
     $now = time();
 
-    // Get plagiarism settings for module.
-    $plagiarismvalues = $DB->get_records_menu('plagiarism_urkund_config', array('cm' => $cmid), '', 'name, value');
-
     // Rests all plagiarism files that match cmid, have not exceeded their max attempts and not already in the queue.
     $sql = "UPDATE {plagiarism_urkund_files}
                SET statuscode = :newstatus, revision = revision + 1
@@ -2082,16 +2084,14 @@ function plagiarism_urkund_resubmit_cm($cmid) {
                     'waiting' => URKUND_STATUSCODE_ACCEPTED);
     $DB->execute($sql, $params);
 
-    if (isset($plagiarismvalues['timeresubmitted'])) {
-        $DB->set_field('plagiarism_urkund_config', 'value', $now,
-            array('name' => 'timeresubmitted', 'cm' => $cmid));
-    } else {
-        $newvalue = new stdClass();
-        $newvalue->cm = $cmid;
-        $newvalue->name = 'timeresubmitted';
-        $newvalue->value = $now;
-        $DB->insert_record('plagiarism_urkund_config', $newvalue);
-    }
+    $DB->delete_records('plagiarism_urkund_config', array('cm' => $cmid, 'name' => 'timeresubmitted'));
+
+    $newvalue = new stdClass();
+    $newvalue->cm = $cmid;
+    $newvalue->name = 'timeresubmitted';
+    $newvalue->value = $now;
+    $DB->insert_record('plagiarism_urkund_config', $newvalue);
+
     // Trigger event to say this has been called.
     $context = context_module::instance($cmid);
     $event = \plagiarism_urkund\event\assessment_resubmitted::create(array(
