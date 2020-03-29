@@ -716,7 +716,7 @@ class plagiarism_plugin_urkund extends plagiarism_plugin {
 
         $email = $USER->email;
         $name = $USER->firstname . " " . $USER->lastname;
-        $response = $c->get("https://secure.urkund.com/api/receivers?emailAddress=$email");
+        $response = $c->get("https://secure.urkund.com/api/receivers?emailAdress=$email");
         $status = $c->info['http_code'];
         if (!empty($status)) {
             $json = json_decode($response);
